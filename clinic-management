@@ -1,0 +1,118 @@
+-- ============================================================================
+-- CLINIC MANAGEMENT SYSTEM - SQL QUERIES
+-- ============================================================================
+
+-- 1. REVENUE FROM EACH SALES CHANNEL (GIVEN YEAR)
+SELECT 
+    sales_channel,
+    SUM(amount) AS total_revenue,
+    COUNT(oid) AS transaction_count,
+    ROUND(SUM(amount) / COUNT(oid), 2) AS avg_transaction_value
+FROM clinic_sales
+WHERE YEAR(datetime) = 2021
+GROUP BY sales_channel
+ORDER BY total_revenue DESC;
+
+-- ============================================================================
+
+-- 2. TOP 10 MOST VALUABLE CUSTOMERS (GIVEN YEAR)
+SELECT TOP 10
+    c.uid,
+    c.name,
+    c.mobile,
+    SUM(cs.amount) AS total_spent,
+    COUNT(cs.oid) AS transaction_count,
+    ROUND(AVG(cs.amount), 2) AS avg_transaction_value
+FROM customer c
+INNER JOIN clinic_sales cs ON c.uid = cs.uid
+WHERE YEAR(cs.datetime) = 2021
+GROUP BY c.uid, c.name, c.mobile
+ORDER BY total_spent DESC;
+
+-- ============================================================================
+
+-- 3. MONTH-WISE REVENUE, EXPENSE, PROFIT, AND STATUS (GIVEN YEAR)
+WITH monthly_sales AS (
+    SELECT 
+        MONTH(datetime) AS month,
+        SUM(amount) AS revenue
+    FROM clinic_sales
+    WHERE YEAR(datetime) = 2021
+    GROUP BY MONTH(datetime)
+),
+monthly_expenses AS (
+    SELECT 
+        MONTH(datetime) AS month,
+        SUM(amount) AS expense
+    FROM expenses
+    WHERE YEAR(datetime) = 2021
+    GROUP BY MONTH(datetime)
+)
+SELECT 
+    COALESCE(s.month, e.month) AS month,
+    COALESCE(s.revenue, 0) AS total_revenue,
+    COALESCE(e.expense, 0) AS total_expense,
+    COALESCE(s.revenue, 0) - COALESCE(e.expense, 0) AS profit,
+    CASE 
+        WHEN COALESCE(s.revenue, 0) - COALESCE(e.expense, 0) > 0 THEN 'Profitable'
+        ELSE 'Not Profitable'
+    END AS status
+FROM monthly_sales s
+FULL OUTER JOIN monthly_expenses e ON s.month = e.month
+ORDER BY month;
+
+-- ============================================================================
+
+-- 4. MOST PROFITABLE CLINIC PER CITY (GIVEN MONTH)
+WITH city_clinic_profit AS (
+    SELECT 
+        cl.cid,
+        cl.clinic_name,
+        cl.city,
+        COALESCE(SUM(cs.amount), 0) - COALESCE(SUM(e.amount), 0) AS profit,
+        ROW_NUMBER() OVER (PARTITION BY cl.city ORDER BY COALESCE(SUM(cs.amount), 0) - COALESCE(SUM(e.amount), 0) DESC) AS profit_rank
+    FROM clinics cl
+    LEFT JOIN clinic_sales cs ON cl.cid = cs.cid 
+        AND YEAR(cs.datetime) = 2021 
+        AND MONTH(cs.datetime) = 9
+    LEFT JOIN expenses e ON cl.cid = e.cid 
+        AND YEAR(e.datetime) = 2021 
+        AND MONTH(e.datetime) = 9
+    GROUP BY cl.cid, cl.clinic_name, cl.city
+)
+SELECT 
+    city,
+    cid,
+    clinic_name,
+    profit
+FROM city_clinic_profit
+WHERE profit_rank = 1
+ORDER BY city;
+
+-- ============================================================================
+
+-- 5. SECOND LEAST PROFITABLE CLINIC PER STATE (GIVEN MONTH)
+WITH state_clinic_profit AS (
+    SELECT 
+        cl.cid,
+        cl.clinic_name,
+        cl.state,
+        COALESCE(SUM(cs.amount), 0) - COALESCE(SUM(e.amount), 0) AS profit,
+        ROW_NUMBER() OVER (PARTITION BY cl.state ORDER BY COALESCE(SUM(cs.amount), 0) - COALESCE(SUM(e.amount), 0) ASC) AS profit_rank
+    FROM clinics cl
+    LEFT JOIN clinic_sales cs ON cl.cid = cs.cid 
+        AND YEAR(cs.datetime) = 2021 
+        AND MONTH(cs.datetime) = 9
+    LEFT JOIN expenses e ON cl.cid = e.cid 
+        AND YEAR(e.datetime) = 2021 
+        AND MONTH(e.datetime) = 9
+    GROUP BY cl.cid, cl.clinic_name, cl.state
+)
+SELECT 
+    state,
+    cid,
+    clinic_name,
+    profit
+FROM state_clinic_profit
+WHERE profit_rank = 2
+ORDER BY state;
